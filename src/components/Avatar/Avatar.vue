@@ -37,21 +37,33 @@
 </docs>
 <template>
 	<div v-tooltip="tooltip"
-		v-click-outside="closeMenu"
 		:class="{
 			'avatardiv--unknown': userDoesNotExist,
 			'avatardiv--with-menu': hasMenu
 		}"
 		:style="avatarStyle"
-		class="avatardiv popovermenu-wrapper"
-		v-on="!disableMenu ? { click: toggleMenu } : {}">
+		class="avatardiv popovermenu-wrapper">
 		<!-- Avatar icon or image -->
 		<div v-if="iconClass" :class="iconClass" class="avatar-class-icon" />
 		<img v-else-if="isAvatarLoaded && !userDoesNotExist"
 			:src="avatarUrlLoaded"
 			:srcset="avatarSrcSetLoaded"
 			alt="">
-		<div v-if="hasMenu" class="icon-more" />
+		<Actions
+			v-if="hasMenu"
+			placement="auto"
+			:force-menu="true"
+			@open="menuOpened">
+			<template>
+				<ActionLink
+					v-for="(item, key) in menu"
+					:key="key"
+					:href="item.href"
+					:icon="item.icon">
+					{{ item.text }}
+				</ActionLink>
+			</template>
+		</Actions>
 
 		<!-- Avatar status -->
 		<div v-if="showUserStatusIconOnAvatar" class="avatardiv__user-status avatardiv__user-status--icon">
@@ -82,21 +94,12 @@
 		<div v-if="userDoesNotExist && !iconClass" class="unknown">
 			{{ initials }}
 		</div>
-
-		<!-- Menu container -->
-		<div v-if="hasMenu"
-			v-show="contactsMenuOpenState"
-			class="popovermenu"
-			:class="`menu-${menuPosition}`">
-			<PopoverMenu :is-open="contactsMenuOpenState" :menu="menu" />
-		</div>
 	</div>
 </template>
 
 <script>
 import { getBuilder } from '@nextcloud/browser-storage'
 import { directive as ClickOutside } from 'v-click-outside'
-import PopoverMenu from '../PopoverMenu'
 import { getCurrentUser } from '@nextcloud/auth'
 import { subscribe, unsubscribe } from '@nextcloud/event-bus'
 import axios from '@nextcloud/axios'
@@ -104,6 +107,9 @@ import { generateUrl } from '@nextcloud/router'
 import Tooltip from '../../directives/Tooltip'
 import usernameToColor from '../../functions/usernameToColor'
 import { userStatus } from '../../mixins'
+import Actions from '../Actions'
+import ActionLink from '../ActionLink'
+import ActionButton from '../ActionButton'
 
 const browserStorage = getBuilder('nextcloud').persist().build()
 
@@ -128,7 +134,9 @@ export default {
 		ClickOutside,
 	},
 	components: {
-		PopoverMenu,
+		Actions,
+		ActionButton,
+		ActionLink,
 	},
 	mixins: [userStatus],
 	props: {
@@ -280,8 +288,8 @@ export default {
 			userDoesNotExist: false,
 			isAvatarLoaded: false,
 			isMenuLoaded: false,
+			contactsMenuLoading: false,
 			contactsMenuActions: [],
-			contactsMenuOpenState: false,
 		}
 	},
 	computed: {
@@ -433,26 +441,19 @@ export default {
 			}
 		},
 
-		async toggleMenu() {
-			if (!this.hasMenu) {
-				return
-			}
-			if (!this.contactsMenuOpenState) {
-				await this.fetchContactsMenu()
-			}
-			this.contactsMenuOpenState = !this.contactsMenuOpenState
-		},
-		closeMenu() {
-			this.contactsMenuOpenState = false
+		menuOpened() {
+			this.fetchContactsMenu()
 		},
 		async fetchContactsMenu() {
+			this.contactsMenuLoading = true
 			try {
 				const user = encodeURIComponent(this.user)
 				const { data } = await axios.post(generateUrl('contactsmenu/findOne'), `shareType=0&shareWith=${user}`)
 				this.contactsMenuActions = data.topAction ? [data.topAction].concat(data.actions) : data.actions
 			} catch (e) {
-				this.contactsMenuOpenState = false
+				console.error(e)
 			}
+			this.contactsMenuLoading = false
 			this.isMenuLoaded = true
 		},
 
@@ -588,37 +589,20 @@ export default {
 
 	&--with-menu {
 		cursor: pointer;
-		.icon-more {
+		::v-deep .action-item {
 			position: absolute;
 			top: 0;
 			left: 0;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			width: inherit;
-			height: inherit;
-			cursor: pointer;
-			opacity: 0;
-			background: none;
-			font-size: 18px;
-
-			@include iconfont('more');
-			&::before {
-				display: block;
-			}
 		}
-		&:focus,
-		&:hover {
-			.icon-more {
+
+		::v-deep .action-item__menutoggle {
+			opacity: 0;
+			transition: opacity var(--animation-quick);
+		}
+		&:focus, &:active {
+			::v-deep .action-item__menutoggle {
 				opacity: 1;
 			}
-			img {
-				opacity: 0.3;
-			}
-		}
-		.icon-more,
-		img {
-			transition: opacity var(--animation-quick);
 		}
 	}
 
@@ -713,12 +697,6 @@ export default {
 	.popovermenu-wrapper {
 		position: relative;
 		display: inline-block;
-	}
-
-	.popovermenu {
-		display: block;
-		margin: 0;
-		font-size: var(--default-font-size);
 	}
 }
 
