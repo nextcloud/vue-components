@@ -31,16 +31,31 @@
 	### Standard usage
 
 	```vue
-	<AppSidebar
-		title="cat-picture.jpg"
-		subtitle="last edited 3 weeks ago">
-		<AppSidebarTab icon="icon-settings" name="Settings" id="settings">
-			Settings tab content
-		</AppSidebarTab>
-		<AppSidebarTab icon="icon-share" name="Sharing" id="share">
-			Sharing tab content
-		</AppSidebarTab>
-	</AppSidebar>
+	<template>
+		<AppSidebar
+			v-if="opened"
+			title="Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.jpg"
+			subtitle="last edited 3 weeks ago"
+			@close="opened = false">
+			<AppSidebarTab icon="icon-settings" name="Settings" id="settings">
+				Settings tab content
+			</AppSidebarTab>
+			<AppSidebarTab icon="icon-share" name="Sharing" id="share">
+				Sharing tab content
+			</AppSidebarTab>
+		</AppSidebar>
+		<button v-else @click="opened = true">Open sidebar</button>
+	</template>
+
+	<script>
+	export default {
+		data() {
+			return {
+				opened: true
+			}
+		}
+	}
+	</script>
 	```
 
 	### Editable title
@@ -122,7 +137,7 @@
 </docs>
 
 <template>
-	<transition name="slide-right" appear>
+	<transition name="slide-right" appear @appear="onAppear" @after-appear="onAfterAppear">
 		<aside id="app-sidebar-vue" class="app-sidebar">
 			<header :class="{
 					'app-sidebar-header--with-figure': hasFigure,
@@ -179,10 +194,12 @@
 							<!-- main title -->
 							<h2 v-show="!titleEditable"
 								v-linkify="{text: title, linkify: linkifyTitle}"
-								v-tooltip.auto="titleTooltip"
+								v-tooltip.auto="titleTooltipData"
 								class="app-sidebar-header__maintitle"
 								@click.self="editTitle">
-								{{ title }}
+								<VClamp ref="titleClamp" :max-lines="clampedLines" tag="span" @clampchange="onClampTitle">
+									{{ title }}
+								</VClamp>
 							</h2>
 							<template v-if="titleEditable">
 								<form
@@ -204,8 +221,12 @@
 								</form>
 							</template>
 							<!-- secondary title -->
-							<p v-if="subtitle.trim() !== ''" class="app-sidebar-header__subtitle">
-								{{ subtitle }}
+							<p v-if="subtitle.trim() !== ''"
+								v-tooltip.auto="isClampedSubtitle ? subtitle : ''"
+								class="app-sidebar-header__subtitle">
+								<VClamp ref="subtitleClamp" :max-lines="clampedLines" tag="span" @clampchange="onClampSubtitle">
+									{{ subtitle }}
+								</VClamp>
 							</p>
 						</div>
 
@@ -233,6 +254,9 @@
 </template>
 
 <script>
+import { directive as ClickOutside } from 'v-click-outside'
+import VClamp from 'vue-clamp'
+
 import Actions from '../Actions'
 import Focus from '../../directives/Focus'
 import Linkify from '../../directives/Linkify'
@@ -240,7 +264,6 @@ import Tooltip from '../../directives/Tooltip'
 import l10n from '../../mixins/l10n'
 import AppSidebarTabs from './AppSidebarTabs'
 import EmptyContent from '../EmptyContent/EmptyContent'
-import { directive as ClickOutside } from 'v-click-outside'
 
 export default {
 	name: 'AppSidebar',
@@ -249,6 +272,7 @@ export default {
 		Actions,
 		AppSidebarTabs,
 		EmptyContent,
+		VClamp,
 	},
 
 	directives: {
@@ -359,13 +383,15 @@ export default {
 		 */
 		titleTooltip: {
 			type: String,
-			default: '',
+			default: null,
 		},
 	},
 
 	data() {
 		return {
 			isStarred: this.starred,
+			isClampedTitle: false,
+			isClampedSubtitle: false,
 		}
 	},
 
@@ -379,6 +405,19 @@ export default {
 		hasFigureClickListener() {
 			return this.$listeners['figure-click']
 		},
+
+		// How many lines to clamp on the titles
+		clampedLines() {
+			return this.compact ? 1 : 2
+		},
+
+		// If there is a titleTooltip, show it, if not, show the full title if clamped
+		titleTooltipData() {
+			if (this.titleTooltip) {
+				return this.titleTooltip
+			}
+			return this.isClampedTitle ? this.title : ''
+		},
 	},
 
 	watch: {
@@ -387,13 +426,49 @@ export default {
 		},
 	},
 
+	updated() {
+		this.$nextTick(this.forceUpdateClamps)
+	},
+
 	methods: {
 		/**
 		 * Emit sidebar close event to parent component
 		 * @param {Event} e click event
 		 */
 		closeSidebar(e) {
+			/**
+			 * The sidebar is closing
+			 * @type {Event}
+			 */
 			this.$emit('close', e)
+		},
+
+		/**
+		 * Emit sidebar open event to parent component
+		 *
+		 * @param {HTMLElement} element the sidebar aside element
+		 * @param {Function} done the done appearing callback
+		 */
+		onAppear(element, done) {
+			/**
+			 * The sidebar is opening and the transition is in progress
+			 * @type {HTMLElement}
+			 */
+			this.$emit('open', element)
+			done()
+		},
+
+		/**
+		 * Emit sidebar open event to parent component
+		 *
+		 * @param {HTMLElement} element the sidebar aside element
+		 */
+		onAfterAppear(element) {
+			/**
+			 * The sidebar is opened and the transition complete
+			 * @type {HTMLElement}
+			 */
+			this.$emit('opened', element)
 		},
 
 		/**
@@ -401,6 +476,10 @@ export default {
 		 * @param {Event} e click event
 		 */
 		onFigureClick(e) {
+			/**
+			 * The figure/background header has been clicked
+			 * @type {Event}
+			 */
 			this.$emit('figure-click', e)
 		},
 
@@ -410,10 +489,18 @@ export default {
 		 */
 		toggleStarred() {
 			this.isStarred = !this.isStarred
+			/**
+			 * Emitted when the starred value changes
+			 * @type {boolean}
+			 */
 			this.$emit('update:starred', this.isStarred)
 		},
 
 		editTitle() {
+			/**
+			 * Emitted when the titleEditable value changes
+			 * @type {boolean}
+			 */
 			this.$emit('update:titleEditable', true)
 			// Focus the title input
 			if (this.titleEditable) {
@@ -450,8 +537,29 @@ export default {
 			this.$emit('update:titleEditable', false)
 			this.$emit('dismiss-editing')
 		},
+
 		onUpdateActive(activeTab) {
+			/**
+			 * The active tab changed
+			 * @type {string}
+			 */
 			this.$emit('update:active', activeTab)
+		},
+
+		// Manage clamp states
+		onClampTitle(isClamped) {
+			this.isClampedTitle = isClamped
+		},
+		onClampSubtitle(isClamped) {
+			this.isClampedSubtitle = isClamped
+		},
+		forceUpdateClamps() {
+			if (this.$refs?.titleClamp?.update) {
+				this.$refs.titleClamp.update()
+			}
+			if (this.$refs?.subtitleClamp?.update) {
+				this.$refs.subtitleClamp.update()
+			}
 		},
 	},
 }
@@ -459,7 +567,6 @@ export default {
 <style lang="scss" scoped>
 $sidebar-min-width: 300px;
 $sidebar-max-width: 500px;
-
 $desc-vertical-padding: 18px;
 $desc-input-padding: 7px;
 
@@ -467,7 +574,6 @@ $desc-input-padding: 7px;
 $desc-title-height: 30px;
 $desc-subtitle-height: 22px;
 $desc-height: $desc-title-height + $desc-subtitle-height;
-
 $top-buttons-spacing: 6px;
 
 /*
@@ -516,34 +622,34 @@ $top-buttons-spacing: 6px;
 
 				.app-sidebar-header__figure {
 					z-index: 2;
+					flex: 0 0 auto;
 					width: $desc-height + $desc-vertical-padding;
 					height: $desc-height + $desc-vertical-padding;
 					margin: $desc-vertical-padding / 2;
 					border-radius: 3px;
-					flex: 0 0 auto;
 				}
 				.app-sidebar-header__desc {
-					height: $desc-height;
-					padding-left: 0;
 					flex: 1 1 auto;
 					min-width: 0;
+					height: $desc-height;
 					padding-right: 2 * $clickable-area + $top-buttons-spacing;
+					padding-left: 0;
 
 					&.app-sidebar-header__desc--without-actions {
 						padding-right: #{$clickable-area + $top-buttons-spacing};
 					}
 
 					.app-sidebar-header__tertiary-actions {
-						z-index: 3; // above star
 						position: absolute;
+						z-index: 3; // above star
 						top: $desc-vertical-padding / 2;
 						left: -1 * $clickable-area;
 					}
 					.app-sidebar-header__menu {
+						position: absolute;
 						top: $top-buttons-spacing;
 						right: $clickable-area + $top-buttons-spacing; // left of the close button
 						background-color: transparent;
-						position: absolute;
 					}
 				}
 			}
@@ -611,24 +717,24 @@ $top-buttons-spacing: 6px;
 
 			.app-sidebar-header__tertiary-actions {
 				display: flex;
-				height: $clickable-area;
-				width: $clickable-area;
-				justify-content: center;
 				flex: 0 0 auto;
+				justify-content: center;
+				width: $clickable-area;
+				height: $clickable-area;
 			}
 
 			// titles
 			.app-sidebar-header__title-container {
-				flex: 1 1 auto;
 				display: flex;
+				flex: 1 1 auto;
 				flex-direction: column;
 				justify-content: center;
 				min-width: 0;
 
 				// main title
 				.app-sidebar-header__maintitle {
-					padding: 0;
 					min-height: 30px;
+					padding: 0;
 					font-size: 20px;
 					line-height: $desc-title-height;
 
@@ -641,11 +747,8 @@ $top-buttons-spacing: 6px;
 
 				.app-sidebar-header__maintitle,
 				.app-sidebar-header__subtitle {
-					overflow: hidden;
 					width: 100%;
 					margin: 0;
-					white-space: nowrap;
-					text-overflow: ellipsis;
 				}
 
 				// subtitle
@@ -681,8 +784,8 @@ $top-buttons-spacing: 6px;
 			}
 			// main menu
 			.app-sidebar-header__menu {
-				height: $clickable-area;
 				width: $clickable-area;
+				height: $clickable-area;
 				border-radius: $clickable-area / 2;
 				background-color: $action-background-hover;
 			}
