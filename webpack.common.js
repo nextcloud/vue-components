@@ -11,6 +11,30 @@ const IconfontPlugin = require('iconfont-plugin-webpack')
 const nodeExternals = require('webpack-node-externals')
 const StyleLintPlugin = require('stylelint-webpack-plugin')
 
+const emojisData = require('emoji-datasource/emoji.json')
+const EMOJIS = emojisData
+	.filter(emoji => emoji.short_name)
+	.reduce((accumulator, current) => {
+		// Add current emoji
+		const emoji = Object.assign({}, current)
+		emoji.value = String.fromCodePoint(...emoji.unified.split('-').map(hex => '0x' + hex))
+		delete emoji.skin_variations
+		accumulator.push(emoji)
+
+		// Handle variations, take the current emoji and replace with variations
+		if (current.skin_variations) {
+			Object.values(current.skin_variations).forEach((variation) => {
+				const emojiVariation = Object.assign({}, current, variation)
+				emojiVariation.value = String.fromCodePoint(...emojiVariation.unified.split('-').map(hex => '0x' + hex))
+				delete emojiVariation.skin_variations
+				accumulator.push(emojiVariation)
+			})
+		}
+		return accumulator
+	}, [])
+
+console.info('Emojis count:', EMOJIS.length, typeof emojisData)
+
 // scope variable
 // fallback for cypress testing
 const appVersion = JSON.stringify(process.env.npm_package_version || 'nextcloud-vue')
@@ -168,6 +192,7 @@ module.exports = {
 		new DefinePlugin({
 			SCOPE_VERSION,
 			TRANSLATIONS: JSON.stringify(translations),
+			EMOJIS: JSON.stringify(EMOJIS),
 		}),
 	],
 	resolve: {
