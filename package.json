@@ -62,6 +62,7 @@
 		"vue-color": "^2.7.1",
 		"vue-material-design-icons": "^4.11.0",
 		"vue-multiselect": "^2.1.6",
+		"vue-ripple-directive": "^2.0.1",
 		"vue-visible": "^1.0.2",
 		"vue2-datepicker": "^3.6.3"
 	},
